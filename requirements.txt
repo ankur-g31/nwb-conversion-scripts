@@ -1,0 +1,7 @@
+pendulum
+pynwb
+dict-plus
+simply-nwb
+numpy
+pandas
+h5py
