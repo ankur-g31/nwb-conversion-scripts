@@ -1,4 +1,5 @@
 import datetime
+import glob
 
 from pendulum.parsing import ParserError
 from dict_plus.utils.simpleflatten import SimpleFlattener
@@ -10,6 +11,8 @@ from simply_nwb import SimpleNWB
 from pynwb.file import Subject
 import pendulum
 import os
+
+from simply_nwb.util import panda_df_to_list_of_timeseries
 
 # Simply-NWB Package Documentation
 # https://simply-nwb.readthedocs.io/en/latest/index.html
@@ -47,6 +50,31 @@ MOUSE_DATA = {  # TODO ADD MORE MICE AND UPDATE BIRTHDAYS AND SEXES?
         "sex": "M"
     }
 }
+
+STIM_CSVS = {
+    "RightCamStim": {  # Remove me and uncomment below
+        "csv_glob": "*_rightCam*.csv",
+        "units": ["idx", "px", "px", "likelihood"]
+    },
+    # TODO Change me to what the real data will look like, currently for testing
+    # "LeftCamStim": {
+    #     "csv_glob": "*_leftCam*.csv",
+    #     # Units line up with
+    #     #         bodyparts,tongue,tongue,tongue,spout,spout,spout
+    #     "units": ["idx", "px", "px", "likelihood", "px", "px", "likelihood"]
+    # },
+    # "RightCamStim": {
+    #     "csv_glob": "*_rightCam*.csv",
+    #     # Units line up with
+    #     #         bodyparts,center,center,center,nasal,nasal,nasal,temporal,temporal,temporal,dorsal,dorsal,dorsal,ventral,ventral,ventral
+    #     "units": ["idx", "px", "px", "likelihood", "px", "px", "likelihood", "px", "px", "likelihood", "px", "px", "likelihood", "px", "px", "likelihood"]
+    # }
+}
+
+# TODO Fill these out!
+RESPONSE_SAMPLING_RATE = MP4_SAMPLING_RATE
+RESPONSE_DESCRIPTION = "description about the processed response"
+RESPONSE_COMMENTS = "comments about the response"
 
 
 def process_labjack(nwbfile, foldername):
@@ -162,6 +190,49 @@ def process_drifting_meta(nwbfile, filename):
     )
 
 
+def process_eyetracking(nwbfile, session_folder):
+    # STIM_CSVS
+    for name, stim_data in STIM_CSVS.items():
+        csv_glob = stim_data["csv_glob"]
+        fullpath = os.path.join(session_folder, csv_glob)
+        results = glob.glob(fullpath)
+        if not results:
+            raise ValueError(f"Unable to find any files matching '{fullpath}'")
+        results = results[0]
+        io = open(results, "r")
+        lines = io.readlines()
+
+        lines.pop(0)  # First line is not important, just 'scorer,<resnet name>*6'
+        col_prefixes = lines.pop(0).split(",")  # Next line is the prefixes of the columns
+        col_suffixes = lines.pop(0).split(",")
+
+        # Combine the column names, insert back into data list
+        headers = [f"{col_prefixes[i].strip()}_{col_suffixes[i].strip()}" for i in range(0, len(col_prefixes))]
+        lines.insert(0, ",".join(headers))
+
+        # Create the module to add the data to
+        response_processing_module = nwbfile.create_processing_module(
+            name=name,
+            description="Processed eyetracking data for {}".format(name)
+        )
+
+        # Load CSV into a dataframe, convert to TimeSeries
+        response_df = csv_load_dataframe_str("\n".join(lines))
+        response_ts = panda_df_to_list_of_timeseries(
+            response_df,
+            measured_unit_list=stim_data["units"],
+            start_time=0.0,
+            sampling_rate=RESPONSE_SAMPLING_RATE,
+            description=RESPONSE_DESCRIPTION,
+            comments=RESPONSE_COMMENTS
+        )
+        # Add the timeseries into the processing module
+        [response_processing_module.add(ts) for ts in response_ts]
+
+    tw = 2
+    pass
+
+
 def flatten_and_format(data):
     flattener = SimpleFlattener(simple_types=[datetime.date, list])
     data = flattener.flatten(data)
@@ -220,6 +291,10 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
             weight=mouse_weight
         )
     )
+
+    # Processing Eyetracking Data
+    print("Processing Eyetracking CSV Data")
+    process_eyetracking(nwbfile, session_path_prefix)
 
     # Process LabJack folder
     print("Processing Labjack folder")
@@ -303,12 +378,12 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
 def main():
     prefix = "/media/polegpolskylab/VIDEO-DATA-02/CompressedDataLocal/"
 
-    # # start remove TEST CODE PLS IGNORE
-    # print("TESTING REMOVE ME!\n" * 10)
-    # import os
-    # os.chdir("test_data")
-    # prefix = ""
-    # # end remove
+    # start remove TEST CODE PLS IGNORE
+    print("TESTING REMOVE ME!\n" * 10)
+    import os
+    os.chdir("test_data")
+    prefix = ""
+    # end remove
 
     sessions_to_process = {
         "20230921/unitME/session001": {
