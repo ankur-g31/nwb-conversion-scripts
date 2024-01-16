@@ -15,7 +15,11 @@ import argparse
 
 def dictify_hd5(data):
     if isinstance(data, h5py.Dataset):
-        return data[:]
+        try:
+            return data[:]
+        except Exception as e:
+            print(f"Errorrrrrr {str(e)}")
+            return "BROKEN!!!!!!!!!!!!!!!!!!!!!!"
     else:
         dd = dict(data)
         d = {}
@@ -28,6 +32,15 @@ def decode_data(data):
     return data[0].decode("utf-8")
 
 
+def _decode_dob(data):
+    date = decode_data(data['general']['DOB'])
+    try:
+        date = f"P{pendulum.from_format(date, 'YYMMDD').diff(pendulum.now()).days}D"
+    except:
+        date = "Unknown"
+    return date
+
+def fix(v, )
 def main(h5_source_file, nwb_output_filename):
     # TODO Read hdf5 file here, populate data and insert into NWB
     data = h5py.File(h5_source_file)
@@ -39,18 +52,18 @@ def main(h5_source_file, nwb_output_filename):
     description = "Ex-vivo electrophysiology and two photon imaging"
     nwbfile = SimpleNWB.create_nwb(
         session_description=description,
-        session_start_time=pendulum.parse(decode_data(data["general"]["Date"])),
+        session_start_time=pendulum.parse(decode_data(data["general"]["Date0"])),
         experimenter=decode_data(data["general"]["Experimentalist"]),
         lab="Poleg-Polsky Lab",
         subject=Subject(
             subject_id="mouse1",
-            age=f"P{pendulum.from_format(decode_data(data['general']['DOB']), 'YYMMDD').diff(pendulum.now()).days}D",
+            age=f"P{_decode_dob(data)}",
             strain=decode_data(data["general"]["Strain"]),
             sex=decode_data(data["general"]["Sex"]),
             description="Mouse"
         ),
         experiment_description=description,
-        session_id=f"session_{decode_data(data['general']['Date'])}",
+        session_id=f"session_{decode_data(data['general']['Date0'])}",
         institution="University of Colorado Anschutz",
         keywords=["mouse", "two photon", "electrophysiology", "retina"]
     )
