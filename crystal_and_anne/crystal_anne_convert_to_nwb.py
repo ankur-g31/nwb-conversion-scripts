@@ -153,7 +153,10 @@ def process_drifting_meta(nwbfile, filename):
             str_idx = str_idx + 1  # Increment past the ')'
             range_len = range_len + 1
 
-            char = cols_str[str_idx]
+            if str_idx >= len(cols_str):  # ) is the end of the string
+                char = ""
+            else:
+                char = cols_str[str_idx]
 
         if char == "," or str_idx + 1 >= len(cols_str):
             cols.append(cols_str[starting_idx:starting_idx + range_len])

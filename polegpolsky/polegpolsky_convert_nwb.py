@@ -1,5 +1,4 @@
 import h5py
-
 from simply_nwb.transforms import labjack_load_file, mp4_read_data
 from simply_nwb import SimpleNWB
 from simply_nwb.transforms import plaintext_metadata_read
@@ -28,9 +27,11 @@ def dictify_hd5(data):
 def decode_data(data):
     return data[0].decode("utf-8")
 
+
 def main(h5_source_file, nwb_output_filename):
     # TODO Read hdf5 file here, populate data and insert into NWB
     data = h5py.File(h5_source_file)
+    # Dictify'd data for debugging ONLY
     dd = dictify_hd5(data)
     tw = 2
 
@@ -43,7 +44,7 @@ def main(h5_source_file, nwb_output_filename):
         lab="Poleg-Polsky Lab",
         subject=Subject(
             subject_id="mouse1",
-            age=decode_data(data["general"]["Age"]) or "unknown",  # TODO calculate from DOB into iso format
+            age=f"P{pendulum.from_format(decode_data(data['general']['DOB']), 'YYMMDD').diff(pendulum.now()).days}D",
             strain=decode_data(data["general"]["Strain"]),
             sex=decode_data(data["general"]["Sex"]),
             description="Mouse"
@@ -53,6 +54,7 @@ def main(h5_source_file, nwb_output_filename):
         institution="University of Colorado Anschutz",
         keywords=["mouse", "two photon", "electrophysiology", "retina"]
     )
+
 
     tw = 2
 
@@ -66,9 +68,7 @@ if __name__ == "__main__":
     # TODO remove me
     import sys
 
-    # sys.argv = [sys.argv[0], "poleg_data/iPhys_2023_06_26_4.h5", "poleg_data/converted.nwb"]
-
-    sys.argv = [sys.argv[0], "poleg_data/iPhys_2023_07_06.h5", "poleg_data/converted.nwb"]
+    sys.argv = [sys.argv[0], "test_data/iPhys_2023_08_19 APP.h5", "test_data/converted.nwb"]
     # TODO end remove me
 
     arg_parser = argparse.ArgumentParser(
