@@ -300,8 +300,8 @@ def process_data(nwbfile, d):
                 if not sweep_id.startswith("sweep_"):
                     continue  # Skip over non-sweep data
 
-                sweep_data["trace_ids"].append([trace_id])
-                sweep_data["sweep_ids"].append([sweep_id])
+                sweep_data["trace_ids"].append(trace_id)
+                sweep_data["sweep_ids"].append(sweep_id)
                 for join_on in trace_sweep_join:  # Pull out the data we're interested in
                     delve_found, delved_data = delve_dict(join_on, sweep_val)  # Pull out nested data
                     if not delve_found:
@@ -314,34 +314,29 @@ def process_data(nwbfile, d):
     tmp = {}
     for f in id_fields:
         tmp[f] = sweep_data.pop(f)
+    two_photon = ("two_photon", "file_name")
+    # NWB doesn't like bytes as strings
+    two_photon_data = [(v or [b''])[:][0].decode("utf-8") for v in sweep_data.pop(two_photon)]
 
     sweep_data = {get_name(k): fill_data(v) for k, v in sweep_data.items()}
-
+    sweep_data["filedata"] = sweep_data.pop(get_name("filedata"))
+    
+    sweep_data[get_name(two_photon)] = two_photon_data
     for f in id_fields:
         sweep_data[f] = tmp.pop(f)
 
-    dyn = dict_to_dyn_tables(
-        sweep_data,
-        f"data",
-        f"Data table by sweep",
-        multiple_objs=True
-    )
-
     for k, v in sweep_data.items():
-        DynamicTable(
-            name=table_name,
-            description=description,
-            columns=VectorData(
-                name=col_name,
-                data=col_data,
-                description=col_name
-            )
-        )
-        SimpleNWB.add_to_processing_module(nwbfile, dyn, "data", "Sweep data")
-
-    tw = 2
-
-    pass
+        SimpleNWB.add_to_processing_module(
+            nwbfile,
+            DynamicTable(
+                name=f"data_{k}",
+                description="Sweep data",
+                columns=[VectorData(
+                    name=k,
+                    data=v,
+                    description="Sweep data"
+                )]
+            ), "data", "Sweep data")
 
 
 def process_events(nwbfile, data):
@@ -355,22 +350,6 @@ def process_general(nwbfile, data):
 def main(h5_source_file, nwb_output_filename):
     # TODO Read hdf5 file here, populate data and insert into NWB
     data = h5py.File(h5_source_file)
-    # Dictify'd data for debugging ONLY
-    import os
-    import json
-    #
-    # if not os.path.exists("test.json"):
-    #     dd = dictify_hd5(data)
-    #     fp = open("test.json", "w")
-    #     json.dump(dd, fp)
-    #     fp.close()
-    # else:
-    #     fp2 = open("test.json", "r")
-    #     dd = json.load(fp2)
-    #     fp2.close()
-    #
-    # DEBUGGING["d"] = dd
-    # tw = 2
 
     # Create the NWB object
     description = "Ex-vivo electrophysiology and two photon imaging"
@@ -394,13 +373,6 @@ def main(h5_source_file, nwb_output_filename):
 
     # process_analysis(nwbfile, data)
     process_data(nwbfile, data)
-    # r = fill_data([
-    #     np.zeros((1, 2)),
-    #     np.zeros((2, 1, 3)),
-    #     np.zeros((2,)),
-    #     np.zeros((4, 4)),
-    #     np.zeros((1,))
-    # ])
     process_events(nwbfile, data)
     process_general(nwbfile, data)
 
