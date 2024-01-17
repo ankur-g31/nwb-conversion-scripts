@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 from dict_plus.utils import SimpleFlattener
+from hdmf.common import DynamicTable, VectorData
 from simply_nwb.transforms import labjack_load_file, mp4_read_data
 from simply_nwb import SimpleNWB
 from simply_nwb.transforms import plaintext_metadata_read
@@ -196,6 +197,54 @@ def process_analysis(nwbfile, d):
     tw = 2
 
 
+def fill_data(listdata):
+    largest_dim_lens = []
+    for v in listdata:
+        if v is not None:
+            # Find the largest dimension among all the list entries
+            if len(largest_dim_lens) < len(v.shape):
+                [largest_dim_lens.append(0) for _ in range(len(v.shape) - len(largest_dim_lens))]  # Add new dimension maxes
+            for idx, dim in enumerate(v.shape):
+                if largest_dim_lens[idx] < dim:
+                    largest_dim_lens[idx] = dim
+
+    fill = np.ma.masked
+    if isinstance(listdata[0][0], (bytes, str)):
+        fill = None
+
+    dtype = listdata[0][:].dtype
+    if listdata[0][:].dtype == object:
+        dtype = object
+
+    new_listdata = np.empty([len(listdata), *largest_dim_lens], dtype=dtype)
+    new_listdata[:] = fill
+
+    for idx, l in enumerate(listdata):
+        if l is None:
+            continue
+        l = l[:]
+        l_shape = []
+
+        if len(l.shape) < len(largest_dim_lens):
+            for _ in range(len(largest_dim_lens) - len(l.shape)):
+                l = l[..., None]
+
+        for lsh_idx, lsh in enumerate(largest_dim_lens):
+            if len(l.shape) <= lsh_idx:
+                l_shape.append(0)
+            else:
+                l_shape.append(l.shape[lsh_idx])
+
+
+
+        new_listdata[idx, :] = np.pad(
+            l,
+            [(0, largest_dim_lens[i] - l_shape[i]) for i in range(len(largest_dim_lens))],
+            constant_values=fill
+        )
+    return new_listdata
+
+
 def process_data(nwbfile, d):
     data = d["data"]
     # dd = dictify_hd5(data["data"])
@@ -205,11 +254,20 @@ def process_data(nwbfile, d):
         ("W_EPparams",),
         ("ephys", "ChRead_0"),
         ("ephys", "ChRead_2"),
-        ("two_photon", "Info"),
         ("two_photon", "W_RecordedChannels"),
         ("two_photon", "file_name"),
+        ('visual_stim', 'M_Movie'),
+        # ('visual_stim', 'M_SpeedModulation'),  # Disable since all values are NaN
+        ('visual_stim', 'M_TimeModulation'),
+        ('visual_stim', 'T_VSprotocol'),
+        ('visual_stim', 'W_Params'),
+        ('visual_stim', 'W_VSparams')
     ]
     sweep_data = {j: [] for j in trace_sweep_join}
+    id_fields = ["trace_ids", "sweep_ids"]
+    extra_fields = [*id_fields, "filedata"]
+    for f in extra_fields:
+        sweep_data[f] = []
 
     get_name = lambda x: "_".join(x)
     
@@ -221,29 +279,65 @@ def process_data(nwbfile, d):
                 return False, None
         return True, data_to_delve
 
-    def find():
-        pass
+    def find_filedata(sweep_data_root):
+        if "two_photon" in sweep_data_root:
+            sweep_data_root = sweep_data_root["two_photon"]
+            for sweep_data_root_key, sweep_data_root_value in sweep_data_root.items():
+                # Search for something like    # Need to find file_*_ChanA
+                if sweep_data_root_key.startswith("file_") and sweep_data_root_key.endswith("_ChanA"):
+                    return sweep_data_root_value
+        return None
 
     trace_list = list(data)
     # Either the number of sweeps is the largest, or the value attached to it is
-    largest_trace_num = max(len(trace_list), max([int(v.split("_")[1]) for v in list(data["data"])]))
+    largest_trace_num = max(len(trace_list), max([int(v.split("_")[1]) for v in list(data)]))
     for trace_num in range(largest_trace_num):
         trace_id = f"trace_{trace_num}"
         if trace_id in data:   # For each trace
             trace = data[trace_id]
             # Process sweeps
             for sweep_id, sweep_val in trace.items():  # Check each sweep in each trace
+                if not sweep_id.startswith("sweep_"):
+                    continue  # Skip over non-sweep data
+
+                sweep_data["trace_ids"].append([trace_id])
+                sweep_data["sweep_ids"].append([sweep_id])
                 for join_on in trace_sweep_join:  # Pull out the data we're interested in
                     delve_found, delved_data = delve_dict(join_on, sweep_val)  # Pull out nested data
                     if not delve_found:
+                        sweep_data[join_on].append(None)
                         continue
-                    sweep_data[join_on].append([trace_id, sweep_id, delved_data])
+                    else:
+                        sweep_data[join_on].append(delved_data)
+                sweep_data["filedata"].append(find_filedata(sweep_val))
 
+    tmp = {}
+    for f in id_fields:
+        tmp[f] = sweep_data.pop(f)
 
-                pass
+    sweep_data = {get_name(k): fill_data(v) for k, v in sweep_data.items()}
 
-    # Need to find two_photon_file_*_Chan*
-    # Add trace ID
+    for f in id_fields:
+        sweep_data[f] = tmp.pop(f)
+
+    dyn = dict_to_dyn_tables(
+        sweep_data,
+        f"data",
+        f"Data table by sweep",
+        multiple_objs=True
+    )
+
+    for k, v in sweep_data.items():
+        DynamicTable(
+            name=table_name,
+            description=description,
+            columns=VectorData(
+                name=col_name,
+                data=col_data,
+                description=col_name
+            )
+        )
+        SimpleNWB.add_to_processing_module(nwbfile, dyn, "data", "Sweep data")
 
     tw = 2
 
@@ -300,13 +394,20 @@ def main(h5_source_file, nwb_output_filename):
 
     # process_analysis(nwbfile, data)
     process_data(nwbfile, data)
+    # r = fill_data([
+    #     np.zeros((1, 2)),
+    #     np.zeros((2, 1, 3)),
+    #     np.zeros((2,)),
+    #     np.zeros((4, 4)),
+    #     np.zeros((1,))
+    # ])
     process_events(nwbfile, data)
     process_general(nwbfile, data)
 
     tw = 2
 
     now = pendulum.now()
-    filename_to_save = "nwb-{}-{}_{}".format(now.month, now.day, now.hour)
+    filename_to_save = "nwb-{}-{}_{}.nwb".format(now.month, now.day, now.hour)
 
     print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
     SimpleNWB.write(nwbfile, filename_to_save)
