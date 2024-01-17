@@ -1,4 +1,6 @@
 import h5py
+import numpy as np
+from dict_plus.utils import SimpleFlattener
 from simply_nwb.transforms import labjack_load_file, mp4_read_data
 from simply_nwb import SimpleNWB
 from simply_nwb.transforms import plaintext_metadata_read
@@ -8,15 +10,19 @@ import pickle
 import os
 import argparse
 
+from simply_nwb.util import dict_to_dyn_tables
+
 
 # Simply-NWB Package Documentation
 # https://simply-nwb.readthedocs.io/en/latest/index.html
+
+DEBUGGING = {}
 
 
 def dictify_hd5(data):
     if isinstance(data, h5py.Dataset):
         try:
-            return data[:]
+            return list(data[:])
         except Exception as e:
             print(f"Errorrrrrr {str(e)}")
             return "BROKEN!!!!!!!!!!!!!!!!!!!!!!"
@@ -40,13 +46,237 @@ def _decode_dob(data):
         date = "Unknown"
     return date
 
-def fix(v, )
+
+def find_common_keyname(keylist):
+    # keylist = [(key1, val1), (key2, val2), ...]
+    if len(keylist) == 0:
+        return []
+    shared_count = 0
+    done = False
+    while True:
+        if len(keylist[0][0]) <= shared_count:
+            shared_count = shared_count - 1
+            break
+
+        to_check = keylist[0][0][:shared_count]
+        for k, v in keylist:
+            if not to_check == k[:shared_count]:
+                shared_count = shared_count - 1
+                done = True
+                break
+        if done:
+            break
+        shared_count = shared_count + 1
+    if shared_count < 0:
+        shared_count = 0
+
+    grouped = {}
+    for k, v in keylist:
+        grouped[k[shared_count:]] = v
+
+    return [[keylist[0][0][:shared_count], grouped]]
+
+
+def group_and_filter_datasets(datadict, prefix):
+    groups = {}
+    for k, v in datadict.items():
+        shape = v.shape
+        if shape == ():
+            continue
+        if shape in groups:
+            groups[shape].append((k, v))
+        else:
+            groups[shape] = [(k, v)]
+
+    # Group any group with only one member
+    groups["orphans"] = []
+    for k in list(groups.keys()):
+        if len(groups[k]) == 1:
+            groups["orphans"].append(groups[k].pop())
+    # Currently groups looks like {(a, b, ..): [(key, val)}, .., "orphans": [(key, val), ..], ..}
+
+    result = []
+    for k, v in groups.items():
+        result.extend(find_common_keyname(v))  # Comes back as [name, {}]
+
+    # [[name, {}], [name, {}], ..]
+    result = [[f"{prefix}_{v[0]}", v[1]] for v in result]  # Add prefix
+    return result
+
+
+def traverse_hdf5(name, entry):
+    # () -> leaf, {} -> tree, [] -> done
+
+    result = []
+    if isinstance(entry, h5py._hl.dataset.Dataset):
+        if entry.shape != ():
+            result.append((name, entry[:]))
+    else:
+        leafs = {}
+        for entry_k, entry_v in entry.items():
+            sub_result = traverse_hdf5(entry_k, entry_v)
+
+            for sub_val in sub_result:
+                if isinstance(sub_val, tuple):
+                    leafs[sub_val[0]] = sub_val[1]
+                elif isinstance(sub_val, list):
+                    sub_val[0] = f"{name}_{sub_val[0]}"  # append prefix and pass it up
+                    result.append(sub_val)
+                # elif isinstance(sub_val, SubGroup):
+
+        # [[name, {}], [name, {}], ..]
+        result.extend(group_and_filter_datasets(leafs, prefix=name))
+
+    return result
+
+
+def fix(val, index=0, backup=None):
+    try:
+        return decode_data(val[index])
+    except Exception as e:
+        if backup:
+            return backup
+        else:
+            raise e
+
+
+def process_analysis(nwbfile, d):
+    data = d["analysis"]
+    all_keys = list(data)
+
+    fl = SimpleFlattener(simple_types=[np.ndarray, type(None), h5py._hl.dataset.Dataset],
+                         dict_types=[h5py._hl.group.Group])
+
+    # Process Events
+    for event_name in list(data["events"]):
+        event = data["events"][event_name]
+        result = traverse_hdf5(event_name, event)
+        for prefix, event_data in result:
+            uneven = False
+            event_items = list(event_data.items())
+            if len(event_items) > 1:
+                if len(event_items[0][1]) != len(event_items[1][1]):
+                    # Columns are uneven
+                    uneven = True
+            if prefix.endswith("_"):
+                prefix = prefix[:-1]
+
+            # Workaround to collisions, increment until there isn't one
+            val = 0
+            while True:
+                try:
+                    dyn = dict_to_dyn_tables(
+                        event_data,
+                        f"analysis_events_{prefix}_{val}",
+                        f"Analysis events for event '{event_name}' with data value {prefix}",
+                        multiple_objs=uneven
+                    )
+                    SimpleNWB.add_to_processing_module(nwbfile, dyn, "analysis_events", "Analysis Events")
+                    break
+                except ValueError as e:
+                    val = val + 1
+                    if val > 1000:
+                        print("Tried 1,000 times to find a different keyname, not continuing")
+                        raise e
+
+    # Process Traces
+    for subkey in all_keys:
+        if subkey == "events":
+            continue
+        flattened = {k: v[:] for k, v in fl.flatten(data[subkey]).items()}  # Convert to numpy array
+
+        dyn = dict_to_dyn_tables(
+            flattened,
+            f"analysis_{subkey}",
+            f"Analysis for {subkey}",
+            multiple_objs=True
+        )
+        SimpleNWB.add_to_processing_module(nwbfile, dyn, f"analysis_{subkey}", "Analysis Traces")
+
+    tw = 2
+
+
+def process_data(nwbfile, d):
+    data = d["data"]
+    # dd = dictify_hd5(data["data"])
+
+    trace_sweep_join = [  # If something doesn't exist just ignore
+        ("M_EPChannelsParams",),
+        ("W_EPparams",),
+        ("ephys", "ChRead_0"),
+        ("ephys", "ChRead_2"),
+        ("two_photon", "Info"),
+        ("two_photon", "W_RecordedChannels"),
+        ("two_photon", "file_name"),
+    ]
+    sweep_data = {j: [] for j in trace_sweep_join}
+
+    get_name = lambda x: "_".join(x)
+    
+    def delve_dict(keylist, data_to_delve):
+        for k in keylist:
+            if k in data_to_delve:
+                data_to_delve = data_to_delve[k]
+            else:
+                return False, None
+        return True, data_to_delve
+
+    def find():
+        pass
+
+    trace_list = list(data)
+    # Either the number of sweeps is the largest, or the value attached to it is
+    largest_trace_num = max(len(trace_list), max([int(v.split("_")[1]) for v in list(data["data"])]))
+    for trace_num in range(largest_trace_num):
+        trace_id = f"trace_{trace_num}"
+        if trace_id in data:   # For each trace
+            trace = data[trace_id]
+            # Process sweeps
+            for sweep_id, sweep_val in trace.items():  # Check each sweep in each trace
+                for join_on in trace_sweep_join:  # Pull out the data we're interested in
+                    delve_found, delved_data = delve_dict(join_on, sweep_val)  # Pull out nested data
+                    if not delve_found:
+                        continue
+                    sweep_data[join_on].append([trace_id, sweep_id, delved_data])
+
+
+                pass
+
+    # Need to find two_photon_file_*_Chan*
+    # Add trace ID
+
+    tw = 2
+
+    pass
+
+
+def process_events(nwbfile, data):
+    pass
+
+
+def process_general(nwbfile, data):
+    pass
+
+
 def main(h5_source_file, nwb_output_filename):
     # TODO Read hdf5 file here, populate data and insert into NWB
     data = h5py.File(h5_source_file)
     # Dictify'd data for debugging ONLY
-    dd = dictify_hd5(data)
-    tw = 2
+    import os
+    import json
+    #
+    # if not os.path.exists("test.json"):
+    #     dd = dictify_hd5(data)
+    #     fp = open("test.json", "w")
+    #     json.dump(dd, fp)
+    #     fp.close()
+    # else:
+    #     fp2 = open("test.json", "r")
+    #     dd = json.load(fp2)
+    #     fp2.close()
+    #
+    # DEBUGGING["d"] = dd
+    # tw = 2
 
     # Create the NWB object
     description = "Ex-vivo electrophysiology and two photon imaging"
@@ -68,13 +298,27 @@ def main(h5_source_file, nwb_output_filename):
         keywords=["mouse", "two photon", "electrophysiology", "retina"]
     )
 
+    # process_analysis(nwbfile, data)
+    process_data(nwbfile, data)
+    process_events(nwbfile, data)
+    process_general(nwbfile, data)
 
     tw = 2
 
-    # TODO add data, use notebook as basic guide, also probably wait for real data example
+    now = pendulum.now()
+    filename_to_save = "nwb-{}-{}_{}".format(now.month, now.day, now.hour)
 
-    # now = pendulum.now()
-    # SimpleNWB.write(nwbfile, "nwb-{}-{}_{}".format(now.month, now.day, now.hour))
+    print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
+    SimpleNWB.write(nwbfile, filename_to_save)
+    print("Done!")
+    from pynwb import NWBHDF5IO as nwbio  # Want to load file to check that it didn't corrupt
+    try:
+        test_nwb = nwbio(filename_to_save).read()
+        # Also note that your data can just 'be missing' because NWB decided not to write it 'for some reason'
+    except Exception as e:
+        print(f"File is corrupted! NWB lets you write data that it won't read correctly, check your input data!")
+        raise e
+    tw = 2
 
 
 if __name__ == "__main__":
