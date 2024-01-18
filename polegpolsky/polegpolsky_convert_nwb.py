@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 from dict_plus.utils import SimpleFlattener
+from hdmf.backends.hdf5 import H5DataIO
 from hdmf.common import DynamicTable, VectorData
 from simply_nwb.transforms import labjack_load_file, mp4_read_data
 from simply_nwb import SimpleNWB
@@ -141,63 +142,9 @@ def fix(val, index=0, backup=None):
             raise e
 
 
-def process_analysis(nwbfile, d):
-    data = d["analysis"]
-    all_keys = list(data)
-
-    fl = SimpleFlattener(simple_types=[np.ndarray, type(None), h5py._hl.dataset.Dataset],
-                         dict_types=[h5py._hl.group.Group])
-
-    # Process Events
-    for event_name in list(data["events"]):
-        event = data["events"][event_name]
-        result = traverse_hdf5(event_name, event)
-        for prefix, event_data in result:
-            uneven = False
-            event_items = list(event_data.items())
-            if len(event_items) > 1:
-                if len(event_items[0][1]) != len(event_items[1][1]):
-                    # Columns are uneven
-                    uneven = True
-            if prefix.endswith("_"):
-                prefix = prefix[:-1]
-
-            # Workaround to collisions, increment until there isn't one
-            val = 0
-            while True:
-                try:
-                    dyn = dict_to_dyn_tables(
-                        event_data,
-                        f"analysis_events_{prefix}_{val}",
-                        f"Analysis events for event '{event_name}' with data value {prefix}",
-                        multiple_objs=uneven
-                    )
-                    SimpleNWB.add_to_processing_module(nwbfile, dyn, "analysis_events", "Analysis Events")
-                    break
-                except ValueError as e:
-                    val = val + 1
-                    if val > 1000:
-                        print("Tried 1,000 times to find a different keyname, not continuing")
-                        raise e
-
-    # Process Traces
-    for subkey in all_keys:
-        if subkey == "events":
-            continue
-        flattened = {k: v[:] for k, v in fl.flatten(data[subkey]).items()}  # Convert to numpy array
-
-        dyn = dict_to_dyn_tables(
-            flattened,
-            f"analysis_{subkey}",
-            f"Analysis for {subkey}",
-            multiple_objs=True
-        )
-        SimpleNWB.add_to_processing_module(nwbfile, dyn, f"analysis_{subkey}", "Analysis Traces")
-
-    tw = 2
-
-
 def fill_data(listdata):
+    # Takes a list of numpy arrays and fills them so that all arrays are the same dimensions, but fills with NaN values
+    # listdata = [arr1, ..]
     largest_dim_lens = []
     for v in listdata:
         if v is not None:
@@ -235,14 +182,88 @@ def fill_data(listdata):
             else:
                 l_shape.append(l.shape[lsh_idx])
 
-
-
         new_listdata[idx, :] = np.pad(
             l,
             [(0, largest_dim_lens[i] - l_shape[i]) for i in range(len(largest_dim_lens))],
             constant_values=fill
         )
     return new_listdata
+
+
+def process_analysis_events(nwbfile, data):
+    # Process Events
+    for event_name in list(data["events"]):
+        event = data["events"][event_name]
+        result = traverse_hdf5(event_name, event)
+        for prefix, event_data in result:
+            uneven = False
+            event_items = list(event_data.items())
+            if len(event_items) > 1:
+                if len(event_items[0][1]) != len(event_items[1][1]):
+                    # Columns are uneven
+                    uneven = True
+            if prefix.endswith("_"):
+                prefix = prefix[:-1]
+
+            # Workaround to collisions, increment until there isn't one
+            val = 0
+            while True:
+                try:
+                    dyn = dict_to_dyn_tables(
+                        event_data,
+                        f"analysis_events_{prefix}_{val}",
+                        f"Analysis events for event '{event_name}' with data value {prefix}",
+                        multiple_objs=uneven
+                    )
+                    SimpleNWB.add_to_processing_module(nwbfile, dyn, "analysis_events", "Analysis Events")
+                    break
+                except ValueError as e:
+                    val = val + 1
+                    if val > 1000:
+                        print("Tried 1,000 times to find a different keyname, not continuing")
+                        raise e
+
+
+def process_analysis_traces(nwbfile, data):
+    all_keys = list(data)
+
+    fl = SimpleFlattener(simple_types=[np.ndarray, type(None), h5py._hl.dataset.Dataset],
+                         dict_types=[h5py._hl.group.Group])
+    for subkey in all_keys:
+        if subkey == "events":
+            continue
+        flattened = {k: v[:] for k, v in fl.flatten(data[subkey]).items()}  # Convert to numpy array
+
+        for k, v in flattened.items():
+            SimpleNWB.add_to_processing_module(
+                nwbfile,
+                DynamicTable(
+                    name=k,
+                    description="Analysis Traces",
+                    columns=[VectorData(
+                        name=k,
+                        data=H5DataIO(
+                            data=v,
+                            compression=True,
+                            chunks=True
+                        ),
+                        description="Analysis Traces"
+                    )]
+                ), f"analysis_{subkey}", f"Analysis for {subkey}")
+
+    tw = 2
+
+
+def process_analysis(nwbfile, d):
+    data = d["analysis"]
+
+    # Process Events
+    print("Processing Analysis Events..")
+    process_analysis_events(nwbfile, data)
+
+    # Process Traces
+    print("Processing Analysis Traces..")
+    process_analysis_traces(nwbfile, data)
 
 
 def process_data(nwbfile, d):
@@ -295,6 +316,7 @@ def process_data(nwbfile, d):
         trace_id = f"trace_{trace_num}"
         if trace_id in data:   # For each trace
             trace = data[trace_id]
+            print(f"Processing Trace '{trace_id}'..")
             # Process sweeps
             for sweep_id, sweep_val in trace.items():  # Check each sweep in each trace
                 if not sweep_id.startswith("sweep_"):
@@ -318,13 +340,14 @@ def process_data(nwbfile, d):
     # NWB doesn't like bytes as strings
     two_photon_data = [(v or [b''])[:][0].decode("utf-8") for v in sweep_data.pop(two_photon)]
 
+    print("Resizing arrays, might take a minute..")
     sweep_data = {get_name(k): fill_data(v) for k, v in sweep_data.items()}
     sweep_data["filedata"] = sweep_data.pop(get_name("filedata"))
     
     sweep_data[get_name(two_photon)] = two_photon_data
     for f in id_fields:
         sweep_data[f] = tmp.pop(f)
-
+    print("Writing data to NWB file and compressing..")
     for k, v in sweep_data.items():
         SimpleNWB.add_to_processing_module(
             nwbfile,
@@ -333,18 +356,82 @@ def process_data(nwbfile, d):
                 description="Sweep data",
                 columns=[VectorData(
                     name=k,
-                    data=v,
+                    data=H5DataIO(
+                        data=v,
+                        compression=True,
+                        chunks=True
+                    ),
                     description="Sweep data"
                 )]
             ), "data", "Sweep data")
 
 
 def process_events(nwbfile, data):
-    pass
+    event_datas = {}
+
+    all_subkeys = [list(data["events"][v]) for v in list(data["events"])]  # Create a set of all possible subkeys
+    possible_subkeys = set()
+    for subk in all_subkeys:
+        [possible_subkeys.add(subk_val) for subk_val in subk]
+
+    def add(k, v, arr):
+        if k in arr:
+            arr[k].append(v)
+        else:
+            arr[k] = [v]
+
+    eventdata = data["events"]
+    basickeys = ["T_2pZstack", "T_comment", "eventTime"]
+
+    for event in list(data["events"]):
+        # T_Event - looks like string info in a 10,2 arr
+        add("event_num", event, event_datas)
+        t_eventdata = eventdata[event].get("T_Event", np.full((10, 2), b''))[:]
+        add("T_Event", np.array([[vv.decode("utf-8") for vv in v] for v in t_eventdata]), event_datas)
+
+        # Basic single value keys
+        for k in basickeys:
+            add(k, eventdata[event].get(k, [b''])[0].decode("utf-8"), event_datas)
+
+        two_photon = eventdata[event].get("two_photon", {})
+        for k, v in two_photon.items():
+            if k.startswith("file_") and (k.endswith("_ChanB") or k.endswith("_ChanA")):
+                add("two_photon_datas", v[:], event_datas)
+                add("two_photon_datas_ids", [event, k], event_datas)
+
+    for k, v in event_datas.items():
+        if k == "two_photon_datas":  # Fill empty values for two_photon data
+            v = fill_data(v)
+        v = np.array(v)
+        SimpleNWB.add_to_processing_module(
+            nwbfile,
+            DynamicTable(
+                name=k,
+                description="Events data",
+                columns=[VectorData(
+                    name=k,
+                    data=v,
+                    description="Events data"
+                )]
+            ), "events", "Events data")
 
 
-def process_general(nwbfile, data):
-    pass
+def process_general(nwbfile, d):
+    data = dictify_hd5(d["general"])
+    data = {k: np.array(v) for k, v in data.items()}
+
+    for k, v in data.items():
+        SimpleNWB.add_to_processing_module(
+            nwbfile,
+            DynamicTable(
+                name=k,
+                description="General Information",
+                columns=[VectorData(
+                    name=k,
+                    data=v,
+                    description="General Information"
+                )]
+            ), "general", "General Information")
 
 
 def main(h5_source_file, nwb_output_filename):
@@ -371,15 +458,17 @@ def main(h5_source_file, nwb_output_filename):
         keywords=["mouse", "two photon", "electrophysiology", "retina"]
     )
 
-    # process_analysis(nwbfile, data)
+    print("Processing Analysis Section..")
+    process_analysis(nwbfile, data)
+    print("Processing Data Section..")
     process_data(nwbfile, data)
+    print("Processing Events Section..")
     process_events(nwbfile, data)
+    print("Processing General Section..")
     process_general(nwbfile, data)
 
-    tw = 2
-
     now = pendulum.now()
-    filename_to_save = "nwb-{}-{}_{}.nwb".format(now.month, now.day, now.hour)
+    filename_to_save = "{}-{}-{}_{}{}{}.nwb".format(nwb_output_filename, now.month, now.day, now.hour, now.minute, now.second)
 
     print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
     SimpleNWB.write(nwbfile, filename_to_save)
