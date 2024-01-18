@@ -485,9 +485,8 @@ def main(h5_source_file, nwb_output_filename):
 
 if __name__ == "__main__":
     # TODO remove me
-    import sys
-
-    sys.argv = [sys.argv[0], "test_data/iPhys_2023_08_19 APP.h5", "test_data/converted.nwb"]
+    # import sys
+    # sys.argv = [sys.argv[0], "test_data/iPhys_2023_08_19 APP.h5", "test_data/converted.nwb"]
     # TODO end remove me
 
     arg_parser = argparse.ArgumentParser(
