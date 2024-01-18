@@ -2,7 +2,7 @@ from pynwb.behavior import BehavioralEvents
 from simply_nwb.transforms import labjack_load_file, mp4_read_data
 from simply_nwb import SimpleNWB
 from simply_nwb.transforms import plaintext_metadata_read
-from simply_nwb.util import panda_df_to_list_of_timeseries, dict_to_dyn_tables
+from simply_nwb.util import panda_df_to_list_of_timeseries, dict_to_dyn_tables, create_mouse_subject
 from pynwb.file import Subject
 import uuid
 import pendulum
@@ -33,38 +33,56 @@ EXPERIMENT_KEYWORDS = ["mouse", "neuropixels"]
 SESSIONS_TO_PROCESS = [
     "test_data/mlati9"
 ]
+
 MOUSE_DETAILS = {
     "mlati9": {
-        "birthday": pendulum.parse("5/2/22", strict=False),
-        "strain": "mouse",
-        "description": "this is a mouse",
+        "subject_id": "mlati9",
+        "birthday_str": "5/2/22",
+        "strain": "mouse idk",
+        "desc": "this is (probably) a mouse",
         "sex": "M"
     }
 }
+
 SESSION_DESCRIPTION = "Mouse shown a drifting grating and record eye position, response data, "
 METADATA_FILENAME = "metadata.txt"
 
-LABJACK_FOLDER = "labjack/"
-
-LABJACK_NAME = "LabjackData"
 LABJACK_SAMPLING_RATE = 1000.0  # in Hz
 LABJACK_DESCRIPTION = "stimulus response data"
 LABJACK_COMMENTS = "labjack data"
 
-MP4_FILES = {
-    "RightEye": "videos/*_rightCam-0000.mp4",
-    "LeftEye": "videos/*_leftCam-0000_reflected.mp4",
-    # Stim Metadata
-    "FictiveSaccades": "stimuli/movies/fictiveSaccades-1.mp4",
-}
+MP4_FILES = [
+    ("RightEye", "videos/*_rightCam-0000.mp4", "Video of a mouse's eye as it responds to a drifting grating"),
+    ("LeftEye", "videos/*_leftCam-0000_reflected.mp4", "Video of a mouse's left eye as it responds to a drifting grating"),
+    ("FictiveSaccades", "stimuli/movies/fictiveSaccades-1.mp4", "Video of the drifting grating")
+]
 
-MP4_DESCRIPTION = "Video of a mouse's eye as it responds to a drifting grating"
 MP4_SAMPLING_RATE = 200.0
+
+
+def process_mp4_data(nwbfile, session_path):
+    # Add mp4 data to NWB
+    for mp4_name, mp4_glob, mp4_desc in MP4_FILES:
+        print(f"Processing '{mp4_name}'..")
+        mp4_file_glob = os.path.join(session_path, mp4_glob)
+        files = glob.glob(mp4_file_glob)
+        if not files:
+            raise ValueError(f"Couldn't find file with glob '{mp4_file_glob}'")
+
+        data, frames = mp4_read_data(files[0])
+        SimpleNWB.mp4_add_as_acquisition(
+            nwbfile,
+            name=mp4_name,
+            numpy_data=data,
+            frame_count=frames,
+            sampling_rate=MP4_SAMPLING_RATE,
+            description=mp4_desc
+        )
 
 
 def process_labjack_data(nwbfile, session_path):
 
-    labjack_folder = os.path.join(session_path, LABJACK_FOLDER)
+    labjack_folder = os.path.join(session_path, "labjack/")
 
     labjack_files = glob.glob(os.path.join(labjack_folder, "*.dat"))
     labjack_datas = []
@@ -124,35 +142,29 @@ def process_ephys_data(nwbfile, session_path):
 def process_session(session_path, session_id):
     mouse_name = os.path.basename(session_path)  # something like 'lick1' etc
 
+    if mouse_name not in MOUSE_DETAILS:
+        raise ValueError(f"Mouse name '{mouse_name}' not in MOUSE_DETAILS, cannot infer properties, please add or correct!")
+
+    mouse_details = MOUSE_DETAILS[mouse_name]
+
     print("Reading metadata file..")
     metadata = plaintext_metadata_read(os.path.join(session_path, METADATA_FILENAME))
 
     start_date = pendulum.parse(metadata["Date"], tz="local")
 
     print("Checking mp4 files..")
-    for mp4_name, mp4_glob in MP4_FILES.items():
+    for mp4_name, mp4_glob, mp4_desc in MP4_FILES:
         mp4_file_glob = os.path.join(session_path, mp4_glob)
         files = glob.glob(mp4_file_glob)
         if not files:
             raise ValueError(f"Couldn't find file with glob '{mp4_file_glob}'")
 
     print("Creating NWB file..")
-    if mouse_name not in MOUSE_DETAILS:
-        raise ValueError(f"Unknown mouse '{mouse_name}', not found in MOUSE_DETAILS dict")
-
-    birthday_diff = pendulum.now().diff(MOUSE_DETAILS[mouse_name]["birthday"])
-
     nwbfile = SimpleNWB.create_nwb(
         session_description=SESSION_DESCRIPTION,
         session_start_time=start_date,
         experimenter=EXPERIMENTERS,
-        subject=Subject(**{
-            "subject_id": mouse_name,
-            "age": f"P{birthday_diff.days}D",  # ISO-8601 for days duration
-            "strain": MOUSE_DETAILS[mouse_name]["strain"],
-            "description": f"Mouse id '{mouse_name}'",
-            "sex": MOUSE_DETAILS[mouse_name]["sex"]
-        }),
+        subject=create_mouse_subject(**mouse_details),
         lab=LAB,
         experiment_description=EXPERIMENT_DESCRIPTION,
         session_id=session_id,
@@ -168,25 +180,21 @@ def process_session(session_path, session_id):
     process_ephys_data(nwbfile, session_path)
 
     print("Adding MP4 Data, might take a while..")
-    # Add mp4 data to NWB
-    for mp4_name, mp4_glob in MP4_FILES.items():
-        print(f"Processing '{mp4_name}'..")
-        mp4_file_glob = os.path.join(session_path, mp4_glob)
-        files = glob.glob(mp4_file_glob)
-        if not files:
-            raise ValueError(f"Couldn't find file with glob '{mp4_file_glob}'")
+    process_mp4_data(nwbfile, session_path)
 
-        data, frames = mp4_read_data(files[0])
-        SimpleNWB.mp4_add_as_acquisition(
-            nwbfile,
-            name=mp4_name,
-            numpy_data=data,
-            frame_count=frames,
-            sampling_rate=MP4_SAMPLING_RATE,
-            description=MP4_DESCRIPTION
-        )
+    filename_to_save = "nwb-{}-{}-{}_{}.nwb".format(session_id, start_date.month, start_date.day, start_date.hour)
+    print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
+    SimpleNWB.write(nwbfile, filename_to_save)
+    print("Done!")
+    tw = 2
 
+
+def reading_file_code():
+    pass
     # HOW TO USE
+    # from pynwb import NWBHDF5IO
+    # nwbfile = NWBHDF5IO(filename).read()
+    #
     # How to access LabJack data
     # nwbfile.acquisition["labjack_data"]["Time"].data[:]
     #
@@ -197,13 +205,7 @@ def process_session(session_path, session_id):
     # nwbfile.acquisition["RightEye"].data[:]
     #
 
-    filename_to_save = "nwb-{}-{}-{}_{}.nwb".format(session_id, start_date.month, start_date.day, start_date.hour)
-    print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
-    SimpleNWB.write(nwbfile, filename_to_save)
-    print("Done!")
-    tw = 2
-
 
 if __name__ == "__main__":
-    process_session(SESSIONS_TO_PROCESS[-1], "test_session_name")
+    process_session(SESSIONS_TO_PROCESS[0], "test_session_name")
     tw = 2
