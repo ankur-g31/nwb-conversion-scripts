@@ -14,7 +14,6 @@ import argparse
 
 from simply_nwb.util import dict_to_dyn_tables
 
-
 # Simply-NWB Package Documentation
 # https://simply-nwb.readthedocs.io/en/latest/index.html
 
@@ -150,12 +149,16 @@ def fill_data(listdata):
         if v is not None:
             # Find the largest dimension among all the list entries
             if len(largest_dim_lens) < len(v.shape):
-                [largest_dim_lens.append(0) for _ in range(len(v.shape) - len(largest_dim_lens))]  # Add new dimension maxes
+                [largest_dim_lens.append(0) for _ in
+                 range(len(v.shape) - len(largest_dim_lens))]  # Add new dimension maxes
             for idx, dim in enumerate(v.shape):
                 if largest_dim_lens[idx] < dim:
                     largest_dim_lens[idx] = dim
 
     fill = np.ma.masked
+    if listdata[0] is None:  # Can't fill empty values, return nothing
+        return np.array([[]])
+
     if isinstance(listdata[0][0], (bytes, str)):
         fill = None
 
@@ -291,7 +294,7 @@ def process_data(nwbfile, d):
         sweep_data[f] = []
 
     get_name = lambda x: "_".join(x)
-    
+
     def delve_dict(keylist, data_to_delve):
         for k in keylist:
             if k in data_to_delve:
@@ -314,7 +317,7 @@ def process_data(nwbfile, d):
     largest_trace_num = max(len(trace_list), max([int(v.split("_")[1]) for v in list(data)]))
     for trace_num in range(largest_trace_num):
         trace_id = f"trace_{trace_num}"
-        if trace_id in data:   # For each trace
+        if trace_id in data:  # For each trace
             trace = data[trace_id]
             print(f"Processing Trace '{trace_id}'..")
             # Process sweeps
@@ -343,7 +346,7 @@ def process_data(nwbfile, d):
     print("Resizing arrays, might take a minute..")
     sweep_data = {get_name(k): fill_data(v) for k, v in sweep_data.items()}
     sweep_data["filedata"] = sweep_data.pop(get_name("filedata"))
-    
+
     sweep_data[get_name(two_photon)] = two_photon_data
     for f in id_fields:
         sweep_data[f] = tmp.pop(f)
@@ -468,7 +471,8 @@ def main(h5_source_file, nwb_output_filename):
     process_general(nwbfile, data)
 
     now = pendulum.now()
-    filename_to_save = "{}-{}-{}_{}{}{}.nwb".format(nwb_output_filename, now.month, now.day, now.hour, now.minute, now.second)
+    filename_to_save = "{}-{}-{}_{}{}{}.nwb".format(nwb_output_filename, now.month, now.day, now.hour, now.minute,
+                                                    now.second)
 
     print("Writing to file '{}' (could take a while!!)..".format(filename_to_save))
     SimpleNWB.write(nwbfile, filename_to_save)
@@ -486,7 +490,7 @@ def main(h5_source_file, nwb_output_filename):
 if __name__ == "__main__":
     # TODO remove me
     # import sys
-    # sys.argv = [sys.argv[0], "test_data/iPhys_2023_08_19 APP.h5", "test_data/converted.nwb"]
+    # sys.argv = [sys.argv[0], "example_dataset.h5", "converted.nwb"]
     # TODO end remove me
 
     arg_parser = argparse.ArgumentParser(
