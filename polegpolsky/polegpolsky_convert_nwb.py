@@ -17,8 +17,6 @@ from simply_nwb.util import dict_to_dyn_tables
 # Simply-NWB Package Documentation
 # https://simply-nwb.readthedocs.io/en/latest/index.html
 
-DEBUGGING = {}
-
 
 def dictify_hd5(data):
     if isinstance(data, h5py.Dataset):
@@ -487,29 +485,46 @@ def main(h5_source_file, nwb_output_filename):
     tw = 2
 
 
+def test_all():
+    drive_letter = "F:"
+    path = f"{drive_letter}\\PolegPolskyConversionData"
+    files = []
+    for f in os.listdir(path):
+        if f.endswith(".h5"):
+            files.append(f"{path}\\{f}")
+
+    for f in files:
+        print(f"Trying {f}")
+        main(f, "test.nwb")
+
+
 if __name__ == "__main__":
     # TODO remove me
     # import sys
     # sys.argv = [sys.argv[0], "example_dataset.h5", "converted.nwb"]
     # TODO end remove me
 
-    arg_parser = argparse.ArgumentParser(
-        prog="polegpolsky_convert_nwb.py",  # TODO rename program?
-        description="Converts incoming formatted hdf5 file into NWB"
-    )
-    arg_parser.add_argument("h5_filename")
-    arg_parser.add_argument("nwb_filename")
-    arg_parser.add_argument("-f", "--force", action="store_true")
+    test_all()
+    # TODO Uncomment me
+    # arg_parser = argparse.ArgumentParser(
+    #     prog="polegpolsky_convert_nwb.py",  # TODO rename program?
+    #     description="Converts incoming formatted hdf5 file into NWB"
+    # )
+    # arg_parser.add_argument("h5_filename")
+    # arg_parser.add_argument("nwb_filename")
+    # arg_parser.add_argument("-f", "--force", action="store_true")
+    #
+    # args = arg_parser.parse_args()
+    #
+    # h5_source_filename = args.h5_filename
+    # nwb_output_filename = args.nwb_filename
+    #
+    # if not os.path.exists(h5_source_filename):
+    #     raise FileNotFoundError(f"Could not find H5 source file '{h5_source_filename}'")
+    #
+    # if os.path.exists(nwb_output_filename) and not args.force:
+    #     raise ValueError("NWB output filename exists already! Use the -f option to force overwrite!")
+    #
+    # main(h5_source_filename, nwb_output_filename)
 
-    args = arg_parser.parse_args()
 
-    h5_source_filename = args.h5_filename
-    nwb_output_filename = args.nwb_filename
-
-    if not os.path.exists(h5_source_filename):
-        raise FileNotFoundError(f"Could not find H5 source file '{h5_source_filename}'")
-
-    if os.path.exists(nwb_output_filename) and not args.force:
-        raise ValueError("NWB output filename exists already! Use the -f option to force overwrite!")
-
-    main(h5_source_filename, nwb_output_filename)
