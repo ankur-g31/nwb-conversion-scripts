@@ -42,13 +42,55 @@ MOUSE_DATA = {  # TODO ADD MORE MICE AND UPDATE BIRTHDAYS AND SEXES?
         "strain": "Gad2Cre",
         "sex": "M"
     },
-    "NameOfMouse2": {  # Copy me
-        "subject_id": "dcm10",
-        "birthday": "7/30/23",
-        "description": "Mouse dcm10",
-        "strain": "Gad2Cre",
+    "pitx005": {  # Copy me
+        "subject_id": "pitx005",
+        "birthday": "Unknown",
+        "description": "Mouse pitx005",
+        "strain": "Pitx2 Het",
+        "sex": "F"
+    },
+    "pitx014": {  # Copy me
+        "subject_id": "pitx014",
+        "birthday": "unknown",
+        "description": "Mouse pitx014",
+        "strain": "Pitx2 Het",
         "sex": "M"
-    }
+    },
+    "pitx010": {  # Copy me
+        "subject_id": "pitx010",
+        "birthday": "Unknown",
+        "description": "Mouse",
+        "strain": "Wild",
+        "sex": "F"
+    },
+    "pitx012": {  # Copy me
+        "subject_id": "pitx012",
+        "birthday": "Unknown",
+        "description": "Mouse",
+        "strain": "Wild",
+        "sex": "M"
+    },
+    "pitx015": {  # Copy me
+        "subject_id": "pitx015",
+        "birthday": "Unknown",
+        "description": "Mouse",
+        "strain": "Pitx HET",
+        "sex": "M"
+    },
+    "pitx016": {  # Copy me
+        "subject_id": "pitx016",
+        "birthday": "Unknown",
+        "description": "Mouse",
+        "strain": "Pitx HET",
+        "sex": "X"
+    },
+    "pitx013": {  # Copy me
+        "subject_id": "pitx013",
+        "birthday": "Unknown",
+        "description": "Mouse",
+        "strain": "Pitx HET",
+        "sex": "F"
+    },
 }
 
 STIM_CSVS = {
@@ -264,9 +306,25 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
     probe_video_name = "driftingGratingWithRandomProbe-1.mp4"
     stim_config = "visualStimulusConfig.yaml"
 
-    mouse_data = MOUSE_DATA[mouse_name]
-    mouse_age = "P" + str(pendulum.parse(mouse_data["birthday"], strict=False).diff(
-        pendulum.now()).in_days()) + "D"  # How many days since birthday
+    if mouse_name is None:
+        mouse_subject = None
+    else:
+        mouse_data = MOUSE_DATA[mouse_name]
+        mouse_birthday = mouse_data["birthday"]
+        if mouse_birthday.lower() != "unknown":
+            mouse_age = "P" + str(pendulum.parse(mouse_data["birthday"], strict=False).diff(
+                pendulum.now()).in_days()) + "D"  # How many days since birthday
+        else:
+            mouse_age = None
+
+        mouse_subject = Subject(
+            subject_id=mouse_name,
+            age=mouse_age,  # ISO-8601 days format
+            strain=mouse_data["strain"],  # if unknown, put Wild Strain
+            description=mouse_data["description"],
+            sex=mouse_data["sex"],
+            weight=mouse_weight
+        )
 
     try:
         session_start_time = pendulum.parse(session_id.split("/")[0])
@@ -285,14 +343,7 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
         institution=INSTITUTION,
         keywords=EXPERIMENT_KEYWORDS,
         related_publications=EXPERIMENT_RELATED_PUBLICATIONS,
-        subject=Subject(
-            subject_id=mouse_name,
-            age=mouse_age,  # ISO-8601 days format
-            strain=mouse_data["strain"],  # if unknown, put Wild Strain
-            description=mouse_data["description"],
-            sex=mouse_data["sex"],
-            weight=mouse_weight
-        )
+        subject=mouse_subject
     )
 
     # Processing Eyetracking Data
@@ -378,34 +429,68 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
     tw = 2
 
 
+def parse_mousedata(mousedata_filepath):
+    fp = open(mousedata_filepath, "r")
+    name = None
+    weight = None
+    desc = None
+    clean = lambda x: "".join(x.split(":")[1:]).strip()
+
+    for line in fp.readlines():
+        if line.startswith("name:"):
+            name = clean(line)
+        elif line.startswith("description:"):
+            desc = clean(line)
+        elif line.startswith("weight:"):
+            weight = clean(line)
+    return name, desc, weight
+
+
+def mass_process_sessions(root_path):
+    folders = os.listdir(root_path)
+    to_process = {}
+    for folder in folders:
+        sessions = os.listdir(os.path.join(root_path, folder, "unitME"))
+        for sess in sessions:
+            path = os.path.join(root_path, folder, "unitME", sess)
+            mouse_data = os.path.join(path, "mousedata.txt")
+            if os.path.exists(mouse_data):
+                name, desc, weight = parse_mousedata(mouse_data)
+                to_process[os.path.join(folder, "unitME", sess)] = {
+                    "session_description": desc,
+                    "mouse_name": name,
+                    "mouse_weight": weight
+                }
+            else:
+                print(f"mousedata.txt not found in folder '{folder}/{sess}'")
+    return to_process
+
+
 def main():
     prefix = "/media/polegpolskylab/VIDEO-DATA-02/CompressedDataLocal/"
 
     # start remove TEST CODE PLS IGNORE
-    print("TESTING REMOVE ME!\n" * 10)
-    import os
-    os.chdir("test_data")
-    prefix = ""
+    # print("TESTING REMOVE ME!\n" * 10)
+    # import os
+    # os.chdir("test_data")
+    # prefix = ""
     # end remove
 
-    sessions_to_process = {
-        "20230921/unitME/session001": {
-            "session_description": "Pilot experiment, control mouse, no CNO",
-            "mouse_name": "dcm10",
-            "mouse_weight": "5g"  # TODO PUT ACTUAL WEIGHT HERE
-        }
-        # Add more sessions to process here, comment out sessions you don't want processed
-    }
+    sessions_to_process = mass_process_sessions(prefix)
 
     for session_id, session_data in sessions_to_process.items():
         print(f"Processing session '{session_id}'")
-        process_session(
-            prefix,
-            session_id,
-            session_data["session_description"],
-            session_data["mouse_name"],
-            session_data["mouse_weight"]
-        )
+        try:
+            process_session(
+                prefix,
+                session_id,
+                session_data["session_description"],
+                session_data["mouse_name"],
+                session_data["mouse_weight"]
+            )
+        except Exception as e:
+            print(f"ERROR WITH SESSION {session_id}! ABORTING! Error: {str(e)}")
+            # raise e
 
 
 if __name__ == "__main__":
