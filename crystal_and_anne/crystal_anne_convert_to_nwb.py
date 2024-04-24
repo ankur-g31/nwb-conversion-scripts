@@ -20,6 +20,8 @@ from simply_nwb.util import panda_df_to_list_of_timeseries
 
 # Constants at the top of the file for things you might want to change for
 # different NWBs for flexibility
+SKIP_EXISTING = True  # If true, skip folders that already have an NWB in them
+
 INSTITUTION: str = "CU Anschutz"
 
 EXPERIMENTERS: [str] = [
@@ -351,8 +353,8 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
     process_eyetracking(nwbfile, session_path_prefix)
 
     # Process LabJack folder
-    print("Processing Labjack folder")
-    process_labjack(nwbfile, f"{session_path_prefix}{os.sep}{labjack_folder}")
+    # print("Processing Labjack folder")
+    # process_labjack(nwbfile, f"{session_path_prefix}{os.sep}{labjack_folder}")
 
     # Process Cam Videos and timestamps
     print("Processing Cam Videos")
@@ -448,12 +450,18 @@ def parse_mousedata(mousedata_filepath):
 
 def mass_process_sessions(root_path):
     folders = os.listdir(root_path)
+    failed_mousedata = []
     to_process = {}
     for folder in folders:
         sessions = os.listdir(os.path.join(root_path, folder, "unitME"))
         for sess in sessions:
             path = os.path.join(root_path, folder, "unitME", sess)
             mouse_data = os.path.join(path, "mousedata.txt")
+            g = glob.glob(os.path.join(path, "*.nwb"))
+            if g and SKIP_EXISTING:
+                print(f"Already found NWB in folder {folder}/{sess}, Skipping")
+                continue
+
             if os.path.exists(mouse_data):
                 name, desc, weight = parse_mousedata(mouse_data)
                 to_process[os.path.join(folder, "unitME", sess)] = {
@@ -463,7 +471,9 @@ def mass_process_sessions(root_path):
                 }
             else:
                 print(f"mousedata.txt not found in folder '{folder}/{sess}'")
-    return to_process
+                failed_mousedata.append(f"{folder}/{sess}")
+
+    return to_process, failed_mousedata
 
 
 def main():
@@ -475,8 +485,20 @@ def main():
     # os.chdir("test_data")
     # prefix = ""
     # end remove
+    sessions_to_process = {
+        "20240103/unitME/session003": {
+            "session_description": "Dosage 0mg/kg",
+            "mouse_name": "pitx014",
+            "mouse_weight": "24.1g"  # TODO PUT ACTUAL WEIGHT HERE
+        }
+    }
 
-    sessions_to_process = mass_process_sessions(prefix)
+    sessions_to_process, failed_mousedata = mass_process_sessions(prefix)
+
+    errored_sessions = []
+    import time
+    print("Waiting 5 seconds to start")
+    time.sleep(5)
 
     for session_id, session_data in sessions_to_process.items():
         print(f"Processing session '{session_id}'")
@@ -489,8 +511,24 @@ def main():
                 session_data["mouse_weight"]
             )
         except Exception as e:
+            errored_sessions.append((session_id, e))
             print(f"ERROR WITH SESSION {session_id}! ABORTING! Error: {str(e)}")
             # raise e
+
+    print("\nList of erroring sessions \n ------")
+    for sid, err in errored_sessions:
+        print(sid)
+    print("")
+
+    print("List of errored sessions and errors \n -----")
+    for sid, err in errored_sessions:
+        print(f"{sid} - {str(err)}")
+    print("")
+
+    print("List of Failed to find mousedata.txt \n ------")
+    for m in failed_mousedata:
+        print(m)
+    print("")
 
 
 if __name__ == "__main__":
