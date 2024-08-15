@@ -30,7 +30,9 @@ def process_sess(foldername, filename):
     sess = NWBSession(os.path.join(foldername, filename))
     # Take our putative saccades and do the actual prediction for the start, end time, and time location
     print("Adding predictive data..")
-    enrich = PredictedSaccadeGUIEnrichment(RECORDING_FPS, find_training_putatives(foldername), 40)
+    enrich = PredictedSaccadeGUIEnrichment(RECORDING_FPS, find_training_putatives(foldername), 40, {
+        "x_center": "center_x", "y_center": "center_y", "likelihood": "center_likelihood"})
+
     sess.enrich(enrich)
     print("Saving to NWB")
     new_filename = filename[len("putative-"):]  # Remove the 'putative-' prefix from the filename to generate a new one
