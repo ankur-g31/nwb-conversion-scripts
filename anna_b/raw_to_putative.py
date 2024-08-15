@@ -9,7 +9,7 @@ from simply_nwb import SimpleNWB
 from simply_nwb.pipeline import NWBSession
 from simply_nwb.pipeline.enrichments.saccades import PutativeSaccadesEnrichment
 
-
+# NOTE THE MAIN CODE FOR ANNA IS IN THE NOTEBOOK FOR RAW TO PUTATIVE
 SESSION_FPS = 150
 
 
@@ -57,7 +57,7 @@ def process_folder(nwb_filename, outputdir, prefix):
     new_filename = os.path.basename(nwb_filename)[len("raw-"):]
     new_filename = os.path.join(prefix, new_filename)
 
-    enrichment = PutativeSaccadesEnrichment(fps=SESSION_FPS)
+    enrichment = PutativeSaccadesEnrichment(fps=SESSION_FPS, x_center="center_x", y_center="center_y", likelihood="center_likelihood")
     sess = NWBSession(os.path.join(prefix, nwb_filename))
     sess.enrich(enrichment)
     sess.save(os.path.join(outputdir, new_filename))  # Save to file

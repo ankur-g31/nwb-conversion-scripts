@@ -6,6 +6,7 @@ from simply_nwb.pipeline import NWBSession
 from simply_nwb.pipeline.enrichments.saccades import PutativeSaccadesEnrichment
 from simply_nwb.pipeline.enrichments.saccades.predict_gui import PredictedSaccadeGUIEnrichment
 import random
+import os
 
 NUM_TRAINING_FILES = 5
 RECORDING_FPS = 150
@@ -15,18 +16,18 @@ def find_training_putatives(foldername):
     filenames = []
     for fn in os.listdir(foldername):
         if fn.endswith(".nwb"):
-            filename.append(fn)
+            filenames.append(fn)
     
     trainings = []
     for i in range(NUM_TRAINING_FILES):
-        trainings.append(filenames[random.randint(len(filenames))])
+        trainings.append(os.path.join(foldername, filenames[random.randint(1, len(filenames)) - 1]))
     
     trainings = list(set(trainings))
     return trainings
 
 
 def process_sess(foldername, filename):
-    sess = NWBSession(filename)
+    sess = NWBSession(os.path.join(foldername, filename))
     # Take our putative saccades and do the actual prediction for the start, end time, and time location
     print("Adding predictive data..")
     enrich = PredictedSaccadeGUIEnrichment(RECORDING_FPS, find_training_putatives(foldername), 40)
