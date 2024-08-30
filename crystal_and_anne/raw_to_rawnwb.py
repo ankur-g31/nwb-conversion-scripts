@@ -290,12 +290,12 @@ def flatten_and_format(data):
 
 
 def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
-    session_date = session_id.split("/")[0]
-    session_number = session_id.split("/")[-1]
+    session_date = session_id.split(os.path.sep)[0]
+    session_number = session_id.split(os.path.sep)[-1]
     labjack_folder = f"{session_date}_{session_number}"  # Ex: 20230121_session001
 
-    session_path_prefix = prefix + session_id
-    file_prefix = "_".join(session_id.split("/"))  # 20230921/unitME/session001 -> 20230921_unitME_session001
+    session_path_prefix = os.path.join(prefix, session_id)
+    file_prefix = "_".join(session_id.split(os.path.sep))  # 20230921/unitME/session001 -> 20230921_unitME_session001
     cams = [
         "leftCam",
         "rightCam"
@@ -329,7 +329,7 @@ def process_session(prefix, session_id, session_desc, mouse_name, mouse_weight):
         )
 
     try:
-        session_start_time = pendulum.parse(session_id.split("/")[0])
+        session_start_time = pendulum.parse(session_id.split(os.path.sep)[0])
         # parse first part of this "20230921/unitME/session001"
     except ParserError as e:
         raise ValueError(f"Invalid session id string, must be formatted like 'date/folders'"
@@ -456,6 +456,8 @@ def mass_process_sessions(root_path):
         sessions = os.listdir(os.path.join(root_path, folder, "unitME"))
         for sess in sessions:
             path = os.path.join(root_path, folder, "unitME", sess)
+            if not os.path.isdir(path):
+                continue
             mouse_data = os.path.join(path, "mousedata.txt")
             g = glob.glob(os.path.join(path, "*.nwb"))
             if g and SKIP_EXISTING:
@@ -477,28 +479,15 @@ def mass_process_sessions(root_path):
 
 
 def main():
+    # prefix = "E:\\AnneData"
     prefix = "/media/polegpolskylab/VIDEO-DATA-02/CompressedDataLocal/"
-
-    # start remove TEST CODE PLS IGNORE
-    # print("TESTING REMOVE ME!\n" * 10)
-    # import os
-    # os.chdir("test_data")
-    # prefix = ""
-    # end remove
-    sessions_to_process = {
-        "20240103/unitME/session003": {
-            "session_description": "Dosage 0mg/kg",
-            "mouse_name": "pitx014",
-            "mouse_weight": "24.1g"  # TODO PUT ACTUAL WEIGHT HERE
-        }
-    }
 
     sessions_to_process, failed_mousedata = mass_process_sessions(prefix)
 
     errored_sessions = []
-    import time
-    print("Waiting 5 seconds to start")
-    time.sleep(5)
+    # import time
+    # print("Waiting 5 seconds to start")
+    # time.sleep(5)
 
     for session_id, session_data in sessions_to_process.items():
         print(f"Processing session '{session_id}'")
