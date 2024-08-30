@@ -1,7 +1,7 @@
 pendulum
 pynwb
 dict-plus
-simply-nwb
+simply-nwb>=1.1.7
 numpy
 pandas
 h5py
