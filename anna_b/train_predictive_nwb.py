@@ -25,7 +25,7 @@ def select_putative_training_nwbs(list_of_nwbs, doskip):
 # Get the filenames for the timestamps.txt and dlc CSV
 input_folder = "putative/"
 output_folder = "predicted/"
-num_saccades = 40
+num_saccades = 100
 skip_load_trainingdata = False
 
 files = glob.glob(os.path.join(input_folder, "**.nwb"))
