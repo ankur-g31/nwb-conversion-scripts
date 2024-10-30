@@ -1,3 +1,6 @@
 *test_data/
 .idea
 *.nwb
+*.pickle
+*.csv
+*.txt

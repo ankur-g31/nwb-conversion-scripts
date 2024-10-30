@@ -42,26 +42,28 @@ def create_nwb():
     return nwbfile
 
 
-def create_putative_nwb(dlc_filepath):
+CSV_MAPPING = {
+    "x_center": "Pupil_x",
+    "y_center": "Pupil_y",
+    "likelihood": "Pupil_likelihood",
+    # "x_center": "Middle_x",
+    # "y_center": "Middle_y",
+    # "likelihood": "Middle_likelihood",
+
+}
+
+def create_putative_nwb(dlc_filepath, timestamps):
     # Create a NWB file to put our data into
     print("Creating base NWB..")
     raw_nwbfile = create_nwb()  # This is the RAW nwbfile, direct output from a 'conversion script' in this example we just make a dummy one
 
-    fp = open("tmpfile.tmp", "w")
-    fp.write("a,b,c")
-    fp.close()
-
-
     # Prepare an enrichment object to be run, and insert the raw data into our nwb in memory
     enrichment = PutativeSaccadesEnrichment.from_raw(
-        raw_nwbfile, dlc_filepath, "tmpfile.tmp", 
+        raw_nwbfile, dlc_filepath, timestamps, 
         units=["px", "px", "px", "p", "px", "px", "p", "px", "px", "p", "px", "px", "p", "px", "px", "p"],
-        x_center="Middle_x",
-        y_center="Middle_y",
-        likelihood="Middle_likelihood",
-        likelihood_threshold=0.7
+        likelihood_threshold=0.7,
+        **CSV_MAPPING
         )
-    os.remove("tmpfile.tmp")
 
     sess = NWBSession(raw_nwbfile)  # Create a session using our in-memory NWB
     # Enrich our nwb into 'putative' saccades (what we think *might* be a saccade)
@@ -96,18 +98,14 @@ def graph_saccades(sess: NWBSession):
 
 
 def main():
-    ###
-    os.environ["NWB_DEBUG"] = "True"  # NOTE ONLY USE TO QUICKLY TRAIN A MODEL (not for real data)
-    ####
-
     # Get the filenames for the timestamps.txt and dlc CSV
     # prefix = "example_data"
     # dlc_filepath = os.path.abspath(os.path.join(prefix, "20240410_unitME_session001_rightCam-0000DLC_resnet50_GazerMay24shuffle1_1030000.csv"))
     
-    prefix = "C:\\Users\\Ankur\\Desktop\\Fixed_Eye_Position-Ankur -2024-10-28\\videos"
-    dlc_filepath = os.path.abspath(os.path.join(prefix, "20241014_unitB01_session001_flirCam-0000DLC_Resnet50_Fixed_Eye_PositionOct28shuffle1_snapshot_200_filtered.csv"))
+    dlc_filepath = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\20241014_unitB01_session001_flirCam-0000DLC_Resnet50_improved modelSep18shuffle1_snapshot_200_filtered.csv"
+    timestamps = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\20241014_unitB01_session001_flirCam_timestamps.txt"
 
-    create_putative_nwb(dlc_filepath)
+    create_putative_nwb(dlc_filepath, timestamps)
 
     sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
 
@@ -129,11 +127,7 @@ def main():
     # putats = [os.path.join(fn, v) for v in l[:5]]
     # enrich = PredictedSaccadeGUIEnrichment(200, putats, 20, putative_kwargs={})
 
-    enrich = PredictedSaccadeGUIEnrichment(200, ["putative.nwb", "putative.nwb"], 20, putative_kwargs={
-            "x_center": "Middle_x", 
-            "y_center": "Middle_y", 
-            "likelihood": "Middle_likelihood"
-        })
+    enrich = PredictedSaccadeGUIEnrichment(200, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
 
     # This will open two guis, where you will identify which direction the saccade is, and what the start and stop is
     # when the gui data entry is done, it will begin training the classifier models. The models are saved so if
