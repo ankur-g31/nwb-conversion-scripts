@@ -109,6 +109,12 @@ def main():
 
     sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
 
+
+    # nasal = sess.pull("PredictSaccades.saccades_predicted_nasal_waveforms")[:, :, 0]
+    # temporal = sess.pull("PredictSaccades.saccades_predicted_temporal_waveforms")[:, :, 0]
+
+    # print(f'nasla is {nasal.shape}')
+
     # Take our putative saccades and do the actual prediction for the start, end time, and time location
     print("Adding predictive data..")
 
