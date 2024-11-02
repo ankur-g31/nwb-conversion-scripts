@@ -52,7 +52,7 @@ def create_nwb():
     return nwbfile
 
 sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
-enrich = PredictedSaccadeGUIEnrichment(200, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
+enrich = PredictedSaccadeGUIEnrichment(150, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
 sess.enrich(enrich)
 
 #print(sess.available_enrichments())

@@ -133,7 +133,7 @@ def main():
     # putats = [os.path.join(fn, v) for v in l[:5]]
     # enrich = PredictedSaccadeGUIEnrichment(200, putats, 20, putative_kwargs={})
 
-    enrich = PredictedSaccadeGUIEnrichment(200, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
+    enrich = PredictedSaccadeGUIEnrichment(150, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
 
     # This will open two guis, where you will identify which direction the saccade is, and what the start and stop is
     # when the gui data entry is done, it will begin training the classifier models. The models are saved so if
