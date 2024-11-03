@@ -43,12 +43,12 @@ def create_nwb():
 
 
 CSV_MAPPING = {
-    "x_center": "Pupil_x",
-    "y_center": "Pupil_y",
-    "likelihood": "Pupil_likelihood",
-    # "x_center": "Middle_x",
-    # "y_center": "Middle_y",
-    # "likelihood": "Middle_likelihood",
+    #"x_center": "Pupil_x",
+    #"y_center": "Pupil_y",
+    #"likelihood": "Pupil_likelihood",
+     "x_center": "Middle_x",
+     "y_center": "Middle_y",
+     "likelihood": "Middle_likelihood",
 
 }
 
@@ -103,11 +103,11 @@ def main():
     # prefix = "example_data"
     # dlc_filepath = os.path.abspath(os.path.join(prefix, "20240410_unitME_session001_rightCam-0000DLC_resnet50_GazerMay24shuffle1_1030000.csv"))
     
-    dlc_filepath =  "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\\20241030_unitB01_session002_flirCam-0000DLC_Resnet50_Fixed_Eye_PositionOct28shuffle1_snapshot_200_filtered.csv"
+    dlc_filepath = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\\20241030_unitB01_session002_flirCam-0000DLC_Resnet50_Fixed_Eye_PositionOct28shuffle1_snapshot_200_filtered.csv"
    
-    timestamps = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\20241030_unitB01_session002_flirCam_timestamps.txt"
+    timestamps = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\\20241030_unitB01_session002_flirCam_timestamps.txt"
 
-    desired_fps = 150
+    
     create_putative_nwb(dlc_filepath, timestamps)
 
     sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
