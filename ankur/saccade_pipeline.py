@@ -62,6 +62,7 @@ def create_putative_nwb(dlc_filepath, timestamps):
         raw_nwbfile, dlc_filepath, timestamps, 
         units=["px", "px", "px", "p", "px", "px", "p", "px", "px", "p", "px", "px", "p", "px", "px", "p"],
         likelihood_threshold=0.7,
+        #fps=150,
         **CSV_MAPPING
         )
 
@@ -102,9 +103,11 @@ def main():
     # prefix = "example_data"
     # dlc_filepath = os.path.abspath(os.path.join(prefix, "20240410_unitME_session001_rightCam-0000DLC_resnet50_GazerMay24shuffle1_1030000.csv"))
     
-    dlc_filepath = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\20241014_unitB01_session001_flirCam-0000DLC_Resnet50_improved modelSep18shuffle1_snapshot_200_filtered.csv"
-    timestamps = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\20241014_unitB01_session001_flirCam_timestamps.txt"
+    dlc_filepath =  "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\\20241030_unitB01_session002_flirCam-0000DLC_Resnet50_Fixed_Eye_PositionOct28shuffle1_snapshot_200_filtered.csv"
+   
+    timestamps = "C:\\Users\\Ankur\\Documents\\GitHub\\nwb-conversion-scripts\\nwb-conversion-scripts\\ankur\20241030_unitB01_session002_flirCam_timestamps.txt"
 
+    desired_fps = 150
     create_putative_nwb(dlc_filepath, timestamps)
 
     sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
@@ -134,8 +137,10 @@ def main():
     # enrich = PredictedSaccadeGUIEnrichment(200, putats, 20, putative_kwargs={})
 
     enrich = PredictedSaccadeGUIEnrichment(150, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
-    sess_dict = sess.to_dict()
-    print(sess_dict['PutativeSaccades']['saccades_fps'])
+    """sess_dict = sess.to_dict()
+    print(sess_dict['PredictSaccades']['saccades_fps'])"""
+
+   
 
     # This will open two guis, where you will identify which direction the saccade is, and what the start and stop is
     # when the gui data entry is done, it will begin training the classifier models. The models are saved so if
@@ -150,6 +155,97 @@ def main():
     sess.enrich(enrich)
     print("Saving to NWB")
     sess.save("predicted.nwb")  # Save as our finalized session, ready for analysis
+    fps = sess.pull("PredictSaccades.saccades_fps")[0]
+    #print(f"Recording FPS: {fps}")
+    temporal_epochs=sess.pull("PredictSaccades.saccades_predicted_temporal_epochs")
+    fps = sess.pull("PredictSaccades.saccades_fps")[0]  # Get the FPS
+    sess.description("PredictSaccades")
+    #starttime = arr[saccnum][0]
+    #print(sess.description("PredictSaccades"))
+    temporal_epochs = sess.pull("PredictSaccades.saccades_predicted_temporal_epochs")
+    nasal_epochs = sess.pull("PredictSaccades.saccades_predicted_nasal_epochs")
+
+    # --- Combine nasal and temporal epochs ---
+    all_epochs = np.concatenate((temporal_epochs, nasal_epochs), axis=0)
+
+    # Sort all epochs by start time
+    all_epochs = all_epochs[all_epochs[:, 0].argsort()]
+
+    # Extract start and end times (assuming epochs are in frames)
+    start_times = all_epochs[:, 0]
+    end_times = all_epochs[:, 1]
+
+    # --- Account for the incorrect FPS ---
+    actual_fps = 150.0  # The actual recording FPS
+    nwb_fps = sess.pull("PredictSaccades.saccades_fps")[0]  # The (incorrect) FPS in the NWB file
+
+    # Convert frame numbers to seconds using the ACTUAL FPS
+    start_times_seconds = start_times / actual_fps
+    end_times_seconds = end_times / actual_fps
+
+    
+    """# Extract start and end times in SECONDS
+    start_times_seconds = all_epochs[:, 0] / fps
+    end_times_seconds = all_epochs[:, 1] / fps"""
+
+    # --- Save to a text file (in frames) ---
+    output_filename_frames = "saccade_timings_frames.txt"
+    with open(output_filename_frames, "w") as f:
+        f.write("Saccade\tStart Frame\tEnd Frame\n")  # Header row
+        for i, (start, end) in enumerate(zip(start_times, end_times)):
+            f.write(f"{i+1}\t{start:.2f}\t{end:.2f}\n")
+
+    print(f"Saccade timings (frames) saved to: {output_filename_frames}")
+
+    # --- Save to a text file (in seconds) ---
+    output_filename_seconds = "saccade_timings_seconds.txt"
+    with open(output_filename_seconds, "w") as f:
+        f.write("Saccade\tStart Time (s)\tEnd Time (s)\n")  # Header row
+        for i, (start, end) in enumerate(zip(start_times_seconds, end_times_seconds)):
+            f.write(f"{i+1}\t{start:.2f}\t{end:.2f}\n")
+
+    print(f"Saccade timings (seconds) saved to: {output_filename_seconds}")
+
+
+    """# Extract start and end times (assuming epochs are in frames)
+    start_times = temporal_epochs[:, 0] 
+    end_times = temporal_epochs[:, 1]
+
+    # Extract start and end times in SECONDS
+    start_times_seconds = temporal_epochs[:, 0] / fps
+    end_times_seconds = temporal_epochs[:, 1] / fps
+
+    # --- Save to a text file ---
+    output_filename = "saccade_timings.txt"
+    with open(output_filename, "w") as f:
+        f.write("Saccade\tStart Frame\tEnd Frame\n")  # Header row
+        for i, (start, end) in enumerate(zip(start_times, end_times)):
+            f.write(f"{i+1}\t{start:.2f}\t{end:.2f}\n")
+
+    print(f"Saccade timings saved to: {output_filename}")
+
+    # --- Save to a text file (in seconds) ---
+    output_filename_seconds = "saccade_timings_seconds.txt"
+    with open(output_filename_seconds, "w") as f:
+        f.write("Saccade\tStart Time (s)\tEnd Time (s)\n")  # Header row
+        for i, (start, end) in enumerate(zip(start_times_seconds, end_times_seconds)):
+            f.write(f"{i+1}\t{start:.2f}\t{end:.2f}\n")
+
+    print(f"Saccade timings (seconds) saved to: {output_filename_seconds}")"""
+
+    nasal_saccades = sess.pull("PredictSaccades.saccades_predicted_nasal_waveforms")
+    num_nasal_saccades = nasal_saccades.shape[0]
+
+    temporal_saccades = sess.pull("PredictSaccades.saccades_predicted_temporal_waveforms")
+    num_temporal_saccades = temporal_saccades.shape[0]
+
+    total_saccades = num_nasal_saccades + num_temporal_saccades
+    
+    
+    print(f"Number of nasal saccades: {num_nasal_saccades}")
+    print(f"Number of temporal saccades: {num_temporal_saccades}")
+    print(f"Total saccades: {total_saccades}")
+    
 
     graph_saccades(sess)
     tw = 2

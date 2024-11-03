@@ -53,11 +53,14 @@ def create_nwb():
 
 sess = NWBSession("putative.nwb")  # Load in the session we would like to enrich to predictive saccades
 enrich = PredictedSaccadeGUIEnrichment(150, ["putative.nwb", "putative.nwb"], 120, putative_kwargs=CSV_MAPPING)
+fps = sess.pull("PredictSaccades.saccades_fps")[0]
+print(f"Recording FPS: {fps}")
+
 sess.enrich(enrich)
 
 #print(sess.available_enrichments())
 #print(sess.available_keys("PredictSaccades"))
-print(sess.available_keys("PutativeSaccades"))
+#print(sess.available_keys("PredictSaccades"))
 nasal = sess.pull("PredictSaccades.saccades_predicted_nasal_waveforms")[:, :, 0]
 temporal = sess.pull("PredictSaccades.saccades_predicted_temporal_waveforms")[:, :, 0]
 
@@ -65,7 +68,7 @@ print(f'nasla is {nasal.shape}')
 #print(sess.available_keys("predictSaccades"))
 sess_dict = sess.to_dict()
 #print(sess_dict['PredictSaccades']['saccades_predicted_nasal_peak_indices'])
-print(sess_dict['PutativeSaccades']['saccades_fps'])
+#print(sess_dict['PredictSaccades']['saccades_fps'])
 #putativeSaccades
 
 
